@@ -14,6 +14,7 @@ def read_texts(file_path: str):
     with open(file_path, 'r', encoding='utf-8') as f:
         for line_num, line in enumerate(f, 1):
             try:
+                if line_num>200000: break # ~3mins 
                 data = json.loads(line)
                 if 'text' not in data:
                     raise KeyError(f"Missing 'text' field in line {line_num}")
@@ -74,7 +75,7 @@ def create_tokenizer_config(save_dir):
 
 def train_tokenizer(data_path:str,save_dir:str, vocab_size:int):
     tokenizer=Tokenizer(models.BPE())
-    tokenizer.normalizer = NFKC()
+    # tokenizer.normalizer = NFKC() 这句话强制将全角转成半角，会导致decoder一致性为false，coding情景下模型会分不清全角和半角的分号
     tokenizer.pre_tokenizer=pre_tokenizers.ByteLevel(add_prefix_space=False)
     tokenizer.decoder = decoders.ByteLevel()
     trainer = trainers.BpeTrainer(
@@ -98,5 +99,44 @@ def train_tokenizer(data_path:str,save_dir:str, vocab_size:int):
     # tokenizer.model.save(save_dir)
     create_tokenizer_config(save_dir=save_dir)
 
+def eval_tokenizer(tokenizer_dir):
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir)
+    messages = [
+        {"role": "system", "content": "你是一个优秀的聊天机器人，总是给我正确的回应！"},
+        {"role": "user", "content": '你来自哪里？'},
+        {"role": "assistant", "content": '我来自地球'}
+    ]
+    new_prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False
+    )
+    print('-'*100)
+    print(new_prompt)
+
+
+    print('-'*100)
+    print('tokenizer词表长度：', len(tokenizer))
+    model_inputs = tokenizer(new_prompt)
+    print('encoder长度：', len(model_inputs['input_ids']))
+    response = tokenizer.decode(model_inputs['input_ids'], skip_special_tokens=False)
+    print('decoder一致性：', response == new_prompt, "\n")
+
+
+    print('-'*100)
+    print('流式解码（字节缓冲）测试：')
+    input_ids = model_inputs['input_ids']
+    token_cache = []
+    for tid in input_ids:
+        token_cache.append(tid)
+        current_decode = tokenizer.decode(token_cache)
+        if current_decode and '\ufffd' not in current_decode:
+            display_ids = token_cache[0] if len(token_cache) == 1 else token_cache
+            raw_tokens = [tokenizer.convert_ids_to_tokens(int(t)) for t in (token_cache if isinstance(token_cache, list) else [token_cache])]
+            print(f'Token ID: {str(display_ids):15} -> Raw: {str(raw_tokens):20} -> Decode Str: {current_decode}')
+            token_cache = []
+
+
 if __name__ == '__main__':
     train_tokenizer(data_path=data_path,save_dir=save_dir,vocab_size=vocab_size)
+    eval_tokenizer(save_dir)
