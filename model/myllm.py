@@ -1,10 +1,12 @@
 # 模型定义在此
-from typing import Optional, Tuple
-from transformers import PretrainedConfig
+from typing import Optional, Tuple, List
+from transformers import PretrainedConfig, PreTrainedModel
+from transformers.modeling_outputs import CausalLMOutputWithPast
 import math
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.nn import CrossEntropyLoss
 
 class ModelConfig(PretrainedConfig):
     model_type="myllm"
@@ -263,7 +265,111 @@ class BaseModel(nn.Module):
         return x,presents
 
 
+class MyLLM(PreTrainedModel):
+    config_class = ModelConfig
+    _no_split_modules = ["DecoderLayer"]
+
+    def __init__(self, config: ModelConfig):
+        super().__init__(config)
+        self.model = BaseModel(config)
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        
+        # Initialize weights and apply final processing
+        # self.post_init()
+
+    def forward(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[List[torch.FloatTensor]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ):
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            past_kv=past_key_values,
+            use_cache=use_cache,
+        )
+
+        hidden_states = outputs[0]
+        logits = self.lm_head(hidden_states)
+
+        loss = None
+        if labels is not None:
+            # Shift so that tokens < n predict n
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            # Flatten the tokens
+            loss_fct = CrossEntropyLoss()
+            shift_logits = shift_logits.view(-1, self.config.vocab_size)
+            shift_labels = shift_labels.view(-1)
+            # Enable model parallelism
+            shift_labels = shift_labels.to(shift_logits.device)
+            loss = loss_fct(shift_logits, shift_labels)
+
+        if not return_dict:
+            output = (logits,) + outputs[1:]
+            return ((loss,) + output) if loss is not None else output
+
+        return CausalLMOutputWithPast(
+            loss=loss,
+            logits=logits,
+            past_key_values=outputs[1],
+            hidden_states=hidden_states if output_hidden_states else None,
+            attentions=None,
+        )
 
     
 if __name__ == '__main__':
-    args=ModelConfig()
+    # Test code
+    print("Testing MyLLM Model...")
+    
+    # 1. Initialize Config and Model
+    config = ModelConfig(
+        n_layers=2,        # Small model for testing
+        hidden_size=64,
+        n_heads=4,
+        n_kvheads=2,
+        vocab_size=100
+    )
+    model = MyLLM(config)
+    print("Model initialized successfully.")
+    
+    # 2. Test Forward Pass (No Cache)
+    input_ids = torch.randint(0, config.vocab_size, (2, 10)) # Batch size 2, Seq len 10
+    outputs = model(input_ids=input_ids)
+    print(f"Forward pass output logits shape: {outputs.logits.shape} (Expected: [2, 10, 100])")
+    assert outputs.logits.shape == (2, 10, 100)
+    
+    # 3. Test Loss Calculation
+    labels = input_ids.clone()
+    outputs = model(input_ids=input_ids, labels=labels)
+    print(f"Loss value: {outputs.loss.item()}")
+    assert outputs.loss is not None
+    
+    # 4. Test KV Cache (Generation Step)
+    # First step
+    outputs_1 = model(input_ids=input_ids, use_cache=True)
+    past_kv = outputs_1.past_key_values
+    print(f"Past KV length: {len(past_kv)}") # Should be n_layers
+    
+    # Next step (append one token)
+    next_token = torch.randint(0, config.vocab_size, (2, 1))
+    outputs_2 = model(input_ids=next_token, past_key_values=past_kv, use_cache=True)
+    print(f"Next step logits shape: {outputs_2.logits.shape} (Expected: [2, 1, 100])")
+    assert outputs_2.logits.shape == (2, 1, 100)
+    
+    print("All tests passed!")

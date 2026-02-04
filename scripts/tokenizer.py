@@ -4,8 +4,8 @@ import json
 import random
 from tokenizers import decoders, models, pre_tokenizers, trainers, Tokenizer
 from tokenizers.normalizers import NFKC
-data_path = '/home/nukunuku/project/myLLM/dataset/pretrain_hq.jsonl'
-save_dir = '/home/nukunuku/project/myLLM/model'
+data_path = '../dataset/pretrain_hq.jsonl'
+save_dir = '../model'
 vocab_size = 6400
 random.seed(42)
 
