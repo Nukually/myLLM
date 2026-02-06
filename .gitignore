@@ -1,8 +1,21 @@
-model/__pycache__
-out
-website/
-docs-myllm/
-.env
-.DS_Store
+# Python
 __pycache__/
 *.pyc
+
+# Jupyter
+.ipynb_checkpoints
+**/.ipynb_checkpoints
+
+# OS
+.DS_Store
+
+# Environment
+.env
+
+# Project
+out/
+website/
+docs-myllm/
+
+# Dataset
+dataset/*.jsonl
