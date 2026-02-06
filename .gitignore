@@ -1,2 +1,8 @@
-dataset/*.jsonl
-myllm
+model/__pycache__
+out
+website/
+docs-myllm/
+.env
+.DS_Store
+__pycache__/
+*.pyc
