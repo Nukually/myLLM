@@ -1,8 +1,10 @@
-# MyLLM Training
+# MyLLM
 
-This repository contains the training code for MyLLM, supporting advanced features like Mixture of Experts (MoE), RoPE, and DeepSpeed distributed training.
+This repository contains the training and inference code for MyLLM, supporting advanced features like Mixture of Experts (MoE), RoPE, and DeepSpeed distributed training.
 
-## Requirements
+
+
+## Dependencies
 
 Install the required dependencies:
 
@@ -17,37 +19,45 @@ pip install -r requirements.txt
    cp .env.example .env
    ```
 
-2. Edit `.env` and fill in your secrets (e.g., `SWANLAB_API_KEY`):
-   ```bash
-   # .env
-   SWANLAB_API_KEY=your_api_key_here
-   ```
+2. Edit `.env` and fill in your secrets (e.g., `SWANLAB_API_KEY` for experiment tracking).
 
-## Distributed Training with DeepSpeed
+## Training
 
 We support multi-GPU training using DeepSpeed. The configuration file is located at `trainer/ds_config.json`.
 
-### Running Pretraining
+### Pre-training
 
-To run Pretraining on multiple GPUs (e.g., 2 GPUs), use the following command:
+To run pre-training on the full dataset (e.g., using 2 GPUs), run the following command from the project root:
 
 ```bash
-deepspeed --num_gpus=2 trainer/train_pretrain.py --use_wandb
+PATH=/root/miniconda3/envs/minimind/bin:$PATH PYTHONPATH=$PWD deepspeed --num_gpus=2 trainer/train_pretrain.py \
+    --data_path dataset/pretrain_hq.jsonl \
+    --epochs 1 \
+    --save_dir out \
+    --log_interval 100 \
+    --save_interval 1000
 ```
 
-### Running DPO Training
+**Note:** The `trainer/ds_config.json` has been configured for ~2760 training steps (based on the `pretrain_hq.jsonl` dataset size).
 
-To run Direct Preference Optimization (DPO) training on multiple GPUs (e.g., 2 GPUs), use the following command:
+## Inference
+
+To evaluate the trained model or chat with it, use the `eval_llm.py` script.
+
+### Chat Mode (Interactive)
 
 ```bash
-deepspeed --num_gpus=2 trainer/train_dpo.py --use_wandb
+python eval_llm.py --load_from model --save_dir out --weight pretrain --mode 1
+```
+
+### Auto Evaluation Mode
+
+```bash
+python eval_llm.py --load_from model --save_dir out --weight pretrain --mode 0
 ```
 
 **Parameters:**
-- `--num_gpus`: Number of GPUs to use.
-- `--deepspeed_config`: Path to DeepSpeed config (default: `trainer/ds_config.json`).
-- `--use_wandb`: Enable SwanLab experiment tracking.
-
-## SwanLab Integration
-
-This project uses SwanLab for experiment tracking. The API key is automatically loaded from the `.env` file.
+- `--load_from`: Model source (`model` for local loading).
+- `--save_dir`: Directory containing the trained weights.
+- `--weight`: Weight prefix (e.g., `pretrain`).
+- `--mode`: `0` for auto-test, `1` for interactive chat.

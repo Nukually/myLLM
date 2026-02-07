@@ -55,7 +55,7 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None, model_engine=Non
             ckp = f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}{moe_suffix}.pth'
             # Save using custom checkpoint logic
             # unwrap model
-            lm_checkpoint(lm_config, weight=args.save_weight, model=model_engine, optimizer=model_engine.optimizer, scaler=None, epoch=epoch, step=step, wandb=wandb, save_dir='../checkpoints')
+            lm_checkpoint(lm_config, weight=args.save_weight, model=model_engine, optimizer=model_engine.optimizer, scaler=None, epoch=epoch, step=step, wandb=wandb, save_dir=args.save_dir)
             model_engine.train()
             
 
@@ -118,18 +118,20 @@ if __name__ == "__main__":
         wandb_run = swanlab
     
     # ========== 5. 定义模型、数据、优化器 ==========
-    model, tokenizer = init_model(lm_config, args.from_weight, device=args.device)
+    model, tokenizer = init_model(lm_config, args.from_weight, tokenizer_path="model", device=args.device)
     if args.use_compile == 1:
         model = torch.compile(model)
         Logger('torch.compile enabled')
     train_ds = PretrainDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
 
     # ========== DeepSpeed Initialize ==========
+    if args.deepspeed_config is None:
+        args.deepspeed_config = "trainer/ds_config.json"
+        
     model_engine, optimizer, _, _ = deepspeed.initialize(
         args=args,
         model=model,
-        model_parameters=model.parameters(),
-        config=args.deepspeed_config or "trainer/ds_config.json"
+        model_parameters=model.parameters()
     )
 
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
